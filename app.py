@@ -2,142 +2,164 @@ import streamlit as st
 import pandas as pd
 import os
 import hashlib
-from datetime import datetime
 import plotly.express as px
+from datetime import datetime
 
-# පිටුවේ සැකසුම්
-st.set_page_config(page_title="Multi-User Wallet Pro", page_icon="🔐", layout="wide")
+# පිටුවේ සැකසුම් සහ UI පෙනුම
+st.set_page_config(page_title="Ultimate Money Manager", page_icon="💳", layout="wide")
 
-# --- දත්ත ගොනු ---
-USER_DB = "users.csv"
-DATA_DB = "all_data.csv"
+# ලස්සන පෙනුම සඳහා CSS
+st.markdown("""
+    <style>
+    .main { background-color: #f0f2f6; }
+    .stMetric { background-color: white; padding: 20px; border-radius: 15px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+    div.stButton > button:first-child { background-color: #007bff; color: white; width: 100%; border-radius: 8px; }
+    </style>
+    """, unsafe_allow_html=True)
 
-# දත්ත ගොනු පරීක්ෂාව
-def init_dbs():
+# --- දත්ත පද්ධති කළමනාකරණය ---
+USER_DB = "users_db.csv"
+DATA_DB = "transactions_db.csv"
+
+def init_files():
     if not os.path.exists(USER_DB):
-        # මුලින්ම Admin කෙනෙක් හදනවා (Username: admin, Password: kalum1997)
         admin_pw = hashlib.sha256("password123".encode()).hexdigest()
-        df_users = pd.DataFrame([["admin", admin_pw, "Admin", True]], columns=["username", "password", "role", "approved"])
-        df_users.to_csv(USER_DB, index=False)
+        pd.DataFrame([["admin", admin_pw, "Admin", True]], columns=["username", "password", "role", "approved"]).to_csv(USER_DB, index=False)
     if not os.path.exists(DATA_DB):
         pd.DataFrame(columns=["username", "දිනය", "වර්ගය", "විස්තරය", "මුදල"]).to_csv(DATA_DB, index=False)
 
-init_dbs()
+init_files()
 
-# --- උපකාරක Function ---
-def make_hashes(password):
-    return hashlib.sha256(str.encode(password)).hexdigest()
-
-def check_hashes(password, hashed_text):
-    if make_hashes(password) == hashed_text:
-        return True
-    return False
-
-# --- පද්ධතියට ඇතුළුවීම (Session State) ---
+# Session State කළමනාකරණය
 if 'logged_in' not in st.session_state:
-    st.session_state['logged_in'] = False
-    st.session_state['username'] = ""
-    st.session_state['role'] = ""
+    st.session_state.update({'logged_in': False, 'username': "", 'role': ""})
 
-# --- LOGIN / REGISTER PAGE ---
+# --- උපකාරක Functions ---
+def make_hash(pw): return hashlib.sha256(pw.encode()).hexdigest()
+
+# --- LOGIN / REGISTER SYSTEM ---
 if not st.session_state['logged_in']:
-    tab1, tab2 = st.tabs(["🔑 Login", "📝 Register"])
+    st.title("🛡️ Secure Access Control")
+    tab1, tab2 = st.tabs(["🔐 Login", "📝 Create Account"])
     
     with tab1:
-        st.subheader("ඇතුළු වන්න")
-        user = st.text_input("Username")
-        passwd = st.text_input("Password", type='password')
-        if st.button("Login"):
+        u = st.text_input("Username", key="l_user")
+        p = st.text_input("Password", type="password", key="l_pass")
+        if st.button("Log In"):
             df_u = pd.read_csv(USER_DB)
-            user_row = df_u[df_u['username'] == user]
-            
-            if not user_row.empty:
-                if check_hashes(passwd, user_row.iloc[0]['password']):
-                    if user_row.iloc[0]['approved']:
-                        st.session_state['logged_in'] = True
-                        st.session_state['username'] = user
-                        st.session_state['role'] = user_row.iloc[0]['role']
-                        st.success(f"සාදරයෙන් පිළිගන්නවා {user}!")
-                        st.rerun()
-                    else:
-                        st.error("ඔබට තවම Admin විසින් අනුමැතිය (Approval) ලබා දී නැත.")
-                else:
-                    st.error("වැරදි Password එකක්.")
-            else:
-                st.error("මවැනි පරිශීලකයෙකු නැත.")
+            user_data = df_u[df_u['username'] == u]
+            if not user_data.empty and user_data.iloc[0]['password'] == make_hash(p):
+                if user_data.iloc[0]['approved']:
+                    st.session_state.update({'logged_in': True, 'username': u, 'role': user_data.iloc[0]['role']})
+                    st.rerun()
+                else: st.error("🛑 ඔබගේ ගිණුම තවම Admin විසින් අනුමත කර නැත.")
+            else: st.error("❌ Username හෝ Password වැරදියි.")
 
     with tab2:
-        st.subheader("ගිණුමක් සාදන්න")
-        new_user = st.text_input("New Username")
-        new_passwd = st.text_input("New Password", type='password')
-        if st.button("Register"):
+        new_u = st.text_input("New Username", key="r_user")
+        new_p = st.text_input("New Password", type="password", key="r_pass")
+        if st.button("Register Now"):
             df_u = pd.read_csv(USER_DB)
-            if new_user in df_u['username'].values:
-                st.warning("මෙම නම දැනටමත් පවතී.")
+            if new_u in df_u['username'].values: st.warning("⚠️ මෙම නම දැනටමත් පවතී.")
             else:
-                new_row = pd.DataFrame([[new_user, make_hashes(new_passwd), "User", False]], columns=df_u.columns)
-                pd.concat([df_u, new_row], ignore_index=True).to_csv(USER_DB, index=False)
-                st.info("පදිංචි කිරීම සාර්ථකයි! Admin අනුමත කරන තෙක් රැඳී සිටින්න.")
+                new_user = pd.DataFrame([[new_u, make_hash(new_p), "User", False]], columns=df_u.columns)
+                pd.concat([df_u, new_user]).to_csv(USER_DB, index=False)
+                st.success("✅ ලියාපදිංචිය සාර්ථකයි! Admin අනුමැතිය ලැබෙන තෙක් රැඳී සිටින්න.")
 
-# --- LOGGED IN CONTENT ---
+# --- ඇප් එක ඇතුළත (LOGGED IN) ---
 else:
-    st.sidebar.title(f"👋 {st.session_state['username']}")
-    if st.sidebar.button("Logout"):
-        st.session_state['logged_in'] = False
-        st.rerun()
-
-    # --- ADMIN VIEW ---
-    if st.session_state['role'] == "Admin":
-        menu = st.sidebar.selectbox("පාලක පුවරුව", ["User Management", "My Expenses"])
+    # Sidebar පාලනය
+    with st.sidebar:
+        st.title(f"👤 {st.session_state['username']}")
+        st.write(f"Role: {st.session_state['role']}")
+        if st.button("🚪 Logout"):
+            st.session_state['logged_in'] = False
+            st.rerun()
+        st.divider()
         
-        if menu == "User Management":
-            st.title("👥 පරිශීලකයින් පාලනය")
-            df_u = pd.read_csv(USER_DB)
-            st.write("දැනට ඉන්න පරිශීලකයින්:")
-            
-            # Approve කරන්න ඕන අය පෙන්වීම
-            for index, row in df_u.iterrows():
-                if row['username'] != 'admin':
-                    col1, col2, col3 = st.columns([2, 1, 1])
-                    col1.write(f"**{row['username']}** (Status: {'Approved' if row['approved'] else 'Pending'})")
-                    if not row['approved']:
-                        if col2.button("Approve", key=f"app_{row['username']}"):
-                            df_u.at[index, 'approved'] = True
-                            df_u.to_csv(USER_DB, index=False)
-                            st.rerun()
-                    if col3.button("Delete", key=f"del_{row['username']}"):
-                        df_u = df_u.drop(index)
+        mode = "My Dashboard"
+        if st.session_state['role'] == "Admin":
+            mode = st.radio("🛠️ පාලක පුවරුව", ["Admin Control", "Personal Expenses"])
+
+    # --- 1. ADMIN INTERFACE ---
+    if mode == "Admin Control":
+        st.title("👨‍💼 Admin Management")
+        df_u = pd.read_csv(USER_DB)
+        
+        st.subheader("👥 User Approval Requests")
+        for i, row in df_u.iterrows():
+            if row['username'] != 'admin':
+                col1, col2, col3 = st.columns([3, 1, 1])
+                status = "✅ Active" if row['approved'] else "⏳ Pending"
+                col1.write(f"**{row['username']}** | Status: {status}")
+                if not row['approved']:
+                    if col2.button("Approve", key=f"app_{i}"):
+                        df_u.at[i, 'approved'] = True
                         df_u.to_csv(USER_DB, index=False)
                         st.rerun()
-            st.stop() # Admin ට මේ පිටුවේදී වියදම් පේන්නේ නැත
+                if col3.button("Remove", key=f"rem_{i}"):
+                    df_u.drop(i).to_csv(USER_DB, index=False)
+                    st.rerun()
+        
+        st.divider()
+        st.subheader("📊 Global System Overview")
+        all_data = pd.read_csv(DATA_DB)
+        st.write(f"මුළු පරිශීලකයින් සංඛ්‍යාව: {len(df_u)}")
+        st.write(f"මුළු ගනුදෙනු සංඛ්‍යාව: {len(all_data)}")
 
-    # --- USER VIEW (OR ADMIN EXPENSES) ---
-    st.title(f"💰 {st.session_state['username']} ගේ පසුම්බිය")
-    
-    # දත්ත කියවීම (තමන්ගේ දත්ත පමණක්)
-    all_df = pd.read_csv(DATA_DB)
-    df = all_df[all_df['username'] == st.session_state['username']]
-
-    with st.sidebar:
-        st.header("නව ගනුදෙනුව")
-        with st.form("my_form", clear_on_submit=True):
-            date = st.date_input("දිනය", datetime.now())
-            category = st.selectbox("වර්ගය", ["🍱 කෑම බීම", "⛽ පෙට්‍රල්", "💵 ආදායම", "🔌 බිල්පත්", "⚙️ වෙනත්"])
-            desc = st.text_input("විස්තරය")
-            amount = st.number_input("මුදල", min_value=0)
-            if st.form_submit_button("එකතු කරන්න"):
-                new_data = pd.DataFrame([[st.session_state['username'], str(date), category, desc, amount]], columns=all_df.columns)
-                pd.concat([all_df, new_data], ignore_index=True).to_csv(DATA_DB, index=False)
-                st.success("සේව් වුණා!")
-                st.rerun()
-
-    # Dashboard display (මෙහි පෙර පෙනුම එලෙසම තැබිය හැක)
-    if not df.empty:
-        income = df[df["වර්ගය"] == "💵 ආදායම"]["මුදල"].sum()
-        expense = df[df["වර්ගය"] != "💵 ආදායම"]["මුදල"].sum()
-        c1, c2 = st.columns(2)
-        c1.metric("ආදායම", f"රු. {income}")
-        c2.metric("වියදම", f"රු. {expense}")
-        st.dataframe(df, use_container_width=True)
+    # --- 2. USER INTERFACE (PERSONAL DASHBOARD) ---
     else:
-        st.info("ඔබට තවම දත්ත නැත. අලුතින් ඇතුළත් කරන්න.")
+        st.title(f"📈 {st.session_state['username']}'s Financial Hub")
+        
+        # දත්ත පූරණය
+        all_data = pd.read_csv(DATA_DB)
+        df = all_data[all_data['username'] == st.session_state['username']].copy()
+        
+        # දත්ත ඇතුළත් කිරීම (Sidebar)
+        with st.sidebar:
+            st.subheader("➕ නව ගනුදෙනුව")
+            with st.form("add_form", clear_on_submit=True):
+                d = st.date_input("දිනය", datetime.now())
+                c = st.selectbox("වර්ගය", ["💵 ආදායම", "🍔 ආහාර", "⛽ ඉන්ධන", "🏠 කුලිය", "💡 බිල්පත්", "🛍️ ෂොපින්", "🏥 සෞඛ්‍ය", "⚙️ වෙනත්"])
+                desc = st.text_input("විස්තරය")
+                amt = st.number_input("මුදල (රු.)", min_value=0)
+                if st.form_submit_button("Add Record"):
+                    new_rec = pd.DataFrame([[st.session_state['username'], str(d), c, desc, amt]], columns=all_data.columns)
+                    pd.concat([all_data, new_rec]).to_csv(DATA_DB, index=False)
+                    st.success("සාර්ථකයි!")
+                    st.rerun()
+
+        # Dashboard UI
+        if not df.empty:
+            df['මුදල'] = pd.to_numeric(df['මුදල'])
+            inc = df[df["වර්ගය"] == "💵 ආදායම"]["මුදල"].sum()
+            exp = df[df["වර්ගය"] != "💵 ආදායම"]["මුදල"].sum()
+            bal = inc - exp
+
+            # Cards
+            m1, m2, m3 = st.columns(3)
+            m1.metric("මුළු ආදායම", f"රු. {inc:,.0f}")
+            m2.metric("මුළු වියදම", f"රු. {exp:,.0f}", delta=f"-{exp:,.0f}", delta_color="inverse")
+            m3.metric("ඉතිරිය", f"රු. {bal:,.0f}", delta=f"{bal:,.0f}")
+
+            st.divider()
+            
+            # Analytics
+            c1, c2 = st.columns([1, 1])
+            with c1:
+                st.subheader("📊 වියදම් විශ්ලේෂණය")
+                exp_df = df[df["වර්ගය"] != "💵 ආදායම"]
+                if not exp_df.empty:
+                    fig = px.pie(exp_df, values='මුදල', names='වර්ගය', hole=0.5, color_discrete_sequence=px.colors.qualitative.Pastel)
+                    st.plotly_chart(fig, use_container_width=True)
+            
+            with c2:
+                st.subheader("📑 මෑතකාලීන ලැයිස්තුව")
+                st.dataframe(df.tail(10), use_container_width=True)
+
+            # Monthly Report
+            st.divider()
+            csv = df.to_csv(index=False).encode('utf-8')
+            st.download_button("📥 Download Monthly Report", csv, "report.csv", "text/csv")
+        else:
+            st.info("👋 තවම දත්ත නැත. අලුත් ගනුදෙනුවක් ඇතුළත් කර ආරම්භ කරන්න.")

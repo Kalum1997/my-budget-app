@@ -8,11 +8,7 @@ from streamlit_option_menu import option_menu
 # --------------------------------------------------
 # APP CONFIG
 # --------------------------------------------------
-st.set_page_config(
-    page_title="Nexus Ultra Pro",
-    page_icon="💎",
-    layout="wide"
-)
+st.set_page_config(page_title="Nexus Ultra Pro", page_icon="💎", layout="wide")
 
 # --------------------------------------------------
 # SESSION STATE (Default: Light Mode)
@@ -53,9 +49,7 @@ def apply_theme():
         background:linear-gradient(135deg,#6366f1,#a855f7);
         color:white;
         font-size:32px;
-        display:flex;
-        align-items:center;
-        justify-content:center;
+        display:flex; align-items:center; justify-content:center;
         box-shadow:0 10px 25px rgba(99,102,241,0.4);
         z-index: 1000;
     }}
@@ -75,7 +69,7 @@ DB = {
 }
 
 def init_db():
-    # Columns වල නම් වලට spaces නැති බව තහවුරු කරගන්න
+    # Columns වල නම් හරියටම තියෙනවාද බලන්න
     if not os.path.exists(DB["users"]):
         pd.DataFrame(columns=["u","p","r","cur"]).to_csv(DB["users"], index=False)
     if not os.path.exists(DB["trans"]):
@@ -88,15 +82,14 @@ def init_db():
 init_db()
 
 # --------------------------------------------------
-# AUTH SYSTEM (Fixed AttributeError logic)
+# AUTH SYSTEM
 # --------------------------------------------------
 def hash_pw(p):
     return hashlib.sha256(p.encode()).hexdigest()
 
 def login(u,p):
-    if not os.path.exists(DB["users"]): return False
     df = pd.read_csv(DB["users"])
-    # ['u'] ආකාරයට පාවිච්චි කිරීමෙන් AttributeError මගහැරේ
+    # KeyError එකක් එන්න විදිහක් නැහැ headers හරියට තිබ්බොත්
     row = df[(df['u'] == u) & (df['p'] == hash_pw(p))]
     if not row.empty:
         st.session_state.update({
@@ -121,10 +114,8 @@ if not st.session_state.logged_in:
             u_input = st.text_input("Username", key="l_u")
             p_input = st.text_input("Password", type="password", key="l_p")
             if st.button("Login", use_container_width=True):
-                if login(u_input, p_input): 
-                    st.rerun()
-                else: 
-                    st.error("Invalid Username or Password")
+                if login(u_input, p_input): st.rerun()
+                else: st.error("Invalid Username or Password")
 
         with tab2:
             nu = st.text_input("New Username", key="r_u")
@@ -196,33 +187,6 @@ elif page == "Transactions":
 
     df_t = pd.read_csv(DB["trans"])
     st.dataframe(df_t[df_t['u'] == st.session_state.username], use_container_width=True)
-
-# --------------------------------------------------
-# BUDGET
-# --------------------------------------------------
-elif page == "Budget":
-    st.header("🎯 Budget")
-    cat = st.selectbox("Category", ["Food", "Transport", "Bills", "Other"])
-    limit = st.number_input("Monthly Limit", min_value=0)
-    if st.button("Set Budget"):
-        df_b = pd.read_csv(DB["budget"])
-        df_b = df_b[~((df_b['u'] == st.session_state.username) & (df_b['category'] == cat))]
-        new_b = pd.DataFrame([[st.session_state.username, cat, limit]], columns=df_b.columns)
-        pd.concat([df_b, new_b], ignore_index=True).to_csv(DB["budget"], index=False)
-        st.success("Budget Saved!")
-
-# --------------------------------------------------
-# GOALS
-# --------------------------------------------------
-elif page == "Goals":
-    st.header("🏆 Goals")
-    name = st.text_input("Goal Name")
-    target = st.number_input("Target Amount", min_value=1)
-    if st.button("Create"):
-        df_g = pd.read_csv(DB["goals"])
-        new_g = pd.DataFrame([[st.session_state.username, name, target, 0]], columns=df_g.columns)
-        pd.concat([df_g, new_g], ignore_index=True).to_csv(DB["goals"], index=False)
-        st.rerun()
 
 # --------------------------------------------------
 # SETTINGS

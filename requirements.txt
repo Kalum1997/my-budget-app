@@ -1,3 +1,8 @@
-pandas
 streamlit
+pandas
 plotly
+streamlit-lottie
+streamlit-option-menu
+fpdf
+openpyxl
+requests

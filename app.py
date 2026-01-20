@@ -32,7 +32,7 @@ with st.sidebar:
         updated_df = pd.concat([df, new_row], ignore_index=True)
         
         # Google Sheet එක Update කිරීම
-        conn.update(data=updated_df)
+        conn.update(worksheet="Sheet1", data=updated_df)
         
         st.success("දත්ත සාර්ථකව Sheet එකට එකතු වුණා!")
         st.rerun()
@@ -54,3 +54,4 @@ if not df.empty:
     st.dataframe(df, use_container_width=True)
 else:
     st.info("තවම දත්ත කිසිවක් නැත. Sidebar එකෙන් ඇතුළත් කරන්න.")
+

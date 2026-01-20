@@ -22,7 +22,7 @@ if "logged_in" not in st.session_state:
         "logged_in": False,
         "username": "",
         "role": "User",
-        "theme": "light",  # මෙතන 'light' ලෙස වෙනස් කළා
+        "theme": "light", 
         "currency": "LKR"
     })
 
@@ -34,7 +34,6 @@ def apply_theme():
     bg = "#0e1117" if dark else "#f4f6fa"
     card = "#1e2130" if dark else "#ffffff"
     text = "#ffffff" if dark else "#1f2937"
-    sub_text = "#9ca3af" if dark else "#4b5563"
 
     st.markdown(f"""
     <style>
@@ -46,7 +45,6 @@ def apply_theme():
         padding:20px;
         box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1);
     }}
-    .stDataFrame {{ background:{card}; border-radius:10px; }}
     .fab {{
         position:fixed;
         bottom:25px; right:25px;
@@ -60,7 +58,6 @@ def apply_theme():
         justify-content:center;
         box-shadow:0 10px 25px rgba(99,102,241,0.4);
         z-index: 1000;
-        cursor: pointer;
     }}
     </style>
     """, unsafe_allow_html=True)
@@ -78,6 +75,7 @@ DB = {
 }
 
 def init_db():
+    # Columns වල නම් වලට spaces නැති බව තහවුරු කරගන්න
     if not os.path.exists(DB["users"]):
         pd.DataFrame(columns=["u","p","r","cur"]).to_csv(DB["users"], index=False)
     if not os.path.exists(DB["trans"]):
@@ -90,14 +88,16 @@ def init_db():
 init_db()
 
 # --------------------------------------------------
-# AUTH SYSTEM
+# AUTH SYSTEM (Fixed AttributeError logic)
 # --------------------------------------------------
 def hash_pw(p):
     return hashlib.sha256(p.encode()).hexdigest()
 
 def login(u,p):
+    if not os.path.exists(DB["users"]): return False
     df = pd.read_csv(DB["users"])
-    row = df[(df.u == u) & (df.p == hash_pw(p))]
+    # ['u'] ආකාරයට පාවිච්චි කිරීමෙන් AttributeError මගහැරේ
+    row = df[(df['u'] == u) & (df['p'] == hash_pw(p))]
     if not row.empty:
         st.session_state.update({
             "logged_in": True,
@@ -118,24 +118,26 @@ if not st.session_state.logged_in:
         tab1, tab2 = st.tabs(["🔐 Login", "📝 Register"])
 
         with tab1:
-            u = st.text_input("Username", key="login_u")
-            p = st.text_input("Password", type="password", key="login_p")
+            u_input = st.text_input("Username", key="l_u")
+            p_input = st.text_input("Password", type="password", key="l_p")
             if st.button("Login", use_container_width=True):
-                if login(u,p): st.rerun()
-                else: st.error("Invalid credentials")
+                if login(u_input, p_input): 
+                    st.rerun()
+                else: 
+                    st.error("Invalid Username or Password")
 
         with tab2:
-            nu = st.text_input("New Username", key="reg_u")
-            np = st.text_input("New Password", type="password", key="reg_p")
-            cur = st.selectbox("Currency",["LKR","USD","EUR"], key="reg_cur")
+            nu = st.text_input("New Username", key="r_u")
+            np = st.text_input("New Password", type="password", key="r_p")
+            cur = st.selectbox("Currency", ["LKR","USD","EUR"], key="r_c")
             if st.button("Create Account", use_container_width=True):
-                df = pd.read_csv(DB["users"])
-                if nu in df.u.values:
-                    st.warning("User already exists")
+                df_u = pd.read_csv(DB["users"])
+                if nu in df_u['u'].values:
+                    st.warning("Username already exists")
                 else:
-                    new_user = pd.DataFrame([[nu, hash_pw(np), "User", cur]], columns=df.columns)
-                    pd.concat([df, new_user], ignore_index=True).to_csv(DB["users"], index=False)
-                    st.success("Account created! Please Login.")
+                    new_user = pd.DataFrame([[nu, hash_pw(np), "User", cur]], columns=["u","p","r","cur"])
+                    pd.concat([df_u, new_user], ignore_index=True).to_csv(DB["users"], index=False)
+                    st.success("Success! Please Login.")
     st.stop()
 
 # --------------------------------------------------
@@ -144,145 +146,91 @@ if not st.session_state.logged_in:
 with st.sidebar:
     st.title("NEXUS PRO")
     page = option_menu(
-        None,
-        ["Dashboard", "Transactions", "Budget", "Goals", "Settings"],
+        None, ["Dashboard", "Transactions", "Budget", "Goals", "Settings"],
         icons=["speedometer2", "cash-stack", "pie-chart", "trophy", "gear"],
-        menu_icon="cast", default_index=0,
-        styles={
-            "container": {"padding": "5!important"},
-            "nav-link": {"font-size": "16px", "text-align": "left", "margin":"5px"}
-        }
+        default_index=0
     )
-    st.divider()
     if st.button("Logout", use_container_width=True):
         st.session_state.logged_in = False
         st.rerun()
 
 # --------------------------------------------------
-# DATA LOAD HELPER
-# --------------------------------------------------
-def load_user_data(db_name):
-    df = pd.read_csv(DB[db_name])
-    return df[df.u == st.session_state.username]
-
-# --------------------------------------------------
-# DASHBOARD PAGE
+# DASHBOARD
 # --------------------------------------------------
 if page == "Dashboard":
-    st.header(f"👋 Welcome back, {st.session_state.username}")
-    
-    df = load_user_data("trans")
-    inc = df[df.type == "Income"].amount.sum()
-    exp = df[df.type == "Expense"].amount.sum()
+    st.header(f"📊 {st.session_state.username}'s Dashboard")
+    df_t = pd.read_csv(DB["trans"])
+    user_df = df_t[df_t['u'] == st.session_state.username]
+
+    inc = user_df[user_df['type'] == "Income"]['amount'].sum()
+    exp = user_df[user_df['type'] == "Expense"]['amount'].sum()
     bal = inc - exp
 
     c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Current Balance", f"{st.session_state.currency} {bal:,.0f}")
+    c1.metric("Balance", f"{st.session_state.currency} {bal:,.0f}")
     c2.metric("Total Income", f"{inc:,.0f}")
     c3.metric("Total Expense", f"{exp:,.0f}")
-    c4.metric("Savings Ratio", f"{(bal/inc*100 if inc else 0):.1f}%")
+    c4.metric("Savings %", f"{(bal/inc*100 if inc > 0 else 0):.1f}%")
 
-    if not df.empty:
-        st.subheader("Spending Analysis")
-        df["date"] = pd.to_datetime(df["date"])
-        # Area chart for cashflow
-        fig = px.area(df.sort_values("date"), x="date", y="amount", color="type",
-                     color_discrete_map={"Income": "#10b981", "Expense": "#ef4444"},
-                     template="plotly_white" if st.session_state.theme == "light" else "plotly_dark")
+    if not user_df.empty:
+        user_df['date'] = pd.to_datetime(user_df['date'])
+        fig = px.line(user_df.sort_values('date'), x='date', y='amount', color='type', markers=True)
         st.plotly_chart(fig, use_container_width=True)
-    else:
-        st.info("No transactions recorded yet. Add your first transaction!")
 
 # --------------------------------------------------
-# TRANSACTIONS PAGE
+# TRANSACTIONS
 # --------------------------------------------------
 elif page == "Transactions":
-    st.header("💰 Transaction Ledger")
-
-    with st.expander("➕ Add New Transaction", expanded=False):
+    st.header("💰 Transactions")
+    with st.expander("➕ Add Entry"):
         c1, c2, c3 = st.columns(3)
-        t_type = c1.selectbox("Transaction Type", ["Income", "Expense"])
-        cat = c2.selectbox("Category", ["Salary", "Food", "Transport", "Bills", "Shopping", "Health", "Other"])
-        amt = c3.number_input("Amount", min_value=0.0, step=100.0)
-
-        c1, c2 = st.columns(2)
-        method = c1.selectbox("Payment Method", ["Cash", "Card", "Bank Transfer", "Digital Wallet"])
-        note = c2.text_input("Add a Note")
-
+        t_type = c1.selectbox("Type", ["Income", "Expense"])
+        cat = c2.selectbox("Category", ["Salary", "Food", "Transport", "Bills", "Health", "Other"])
+        amt = c3.number_input("Amount", min_value=0.0)
+        
         if st.button("Save Transaction", use_container_width=True):
-            df_all = pd.read_csv(DB["trans"])
-            new_entry = pd.DataFrame([[
-                st.session_state.username, str(date.today()),
-                t_type, cat, amt, method, note
-            ]], columns=df_all.columns)
-            pd.concat([df_all, new_entry], ignore_index=True).to_csv(DB["trans"], index=False)
-            st.success("Transaction recorded successfully!")
+            all_t = pd.read_csv(DB["trans"])
+            new_t = pd.DataFrame([[st.session_state.username, str(date.today()), t_type, cat, amt, "Cash", ""]], columns=all_t.columns)
+            pd.concat([all_t, new_t], ignore_index=True).to_csv(DB["trans"], index=False)
             st.rerun()
 
-    st.subheader("History")
-    user_df = load_user_data("trans").iloc[::-1] # Show newest first
-    st.dataframe(user_df, use_container_width=True, hide_index=True)
+    df_t = pd.read_csv(DB["trans"])
+    st.dataframe(df_t[df_t['u'] == st.session_state.username], use_container_width=True)
 
 # --------------------------------------------------
-# BUDGET PAGE
+# BUDGET
 # --------------------------------------------------
 elif page == "Budget":
-    st.header("🎯 Budgeting")
-    
-    col_a, col_b = st.columns([1, 1])
-    with col_a:
-        st.subheader("Set Limit")
-        b_cat = st.selectbox("Select Category", ["Food", "Transport", "Bills", "Shopping", "Entertainment"])
-        limit = st.number_input("Monthly Limit Amount", min_value=0.0)
-
-        if st.button("Update Budget", use_container_width=True):
-            df_b = pd.read_csv(DB["budget"])
-            # Remove existing for this category if any
-            df_b = df_b[~((df_b.u == st.session_state.username) & (df_b.category == b_cat))]
-            new_b = pd.DataFrame([[st.session_state.username, b_cat, limit]], columns=df_b.columns)
-            pd.concat([df_b, new_b], ignore_index=True).to_csv(DB["budget"], index=False)
-            st.success(f"Budget set for {b_cat}")
-            st.rerun()
-
-    with col_b:
-        st.subheader("Active Budgets")
-        st.dataframe(load_user_data("budget"), use_container_width=True, hide_index=True)
+    st.header("🎯 Budget")
+    cat = st.selectbox("Category", ["Food", "Transport", "Bills", "Other"])
+    limit = st.number_input("Monthly Limit", min_value=0)
+    if st.button("Set Budget"):
+        df_b = pd.read_csv(DB["budget"])
+        df_b = df_b[~((df_b['u'] == st.session_state.username) & (df_b['category'] == cat))]
+        new_b = pd.DataFrame([[st.session_state.username, cat, limit]], columns=df_b.columns)
+        pd.concat([df_b, new_b], ignore_index=True).to_csv(DB["budget"], index=False)
+        st.success("Budget Saved!")
 
 # --------------------------------------------------
-# GOALS PAGE
+# GOALS
 # --------------------------------------------------
 elif page == "Goals":
-    st.header("🏆 Savings Goals")
-    
-    with st.form("goal_form"):
-        g_name = st.text_input("What are you saving for?")
-        g_target = st.number_input("Target Amount", min_value=1.0)
-        if st.form_submit_button("Create Goal"):
-            df_g = pd.read_csv(DB["goals"])
-            new_goal = pd.DataFrame([[st.session_state.username, g_name, g_target, 0.0]], columns=df_g.columns)
-            pd.concat([df_g, new_goal], ignore_index=True).to_csv(DB["goals"], index=False)
-            st.success("New goal added to your list!")
-            st.rerun()
-
-    st.subheader("My Goals")
-    goals_df = load_user_data("goals")
-    for index, row in goals_df.iterrows():
-        st.write(f"**{row['name']}**")
-        progress = float(row['current'] / row['target'])
-        st.progress(min(progress, 1.0))
-        st.caption(f"{row['current']:,.0f} / {row['target']:,.0f} {st.session_state.currency}")
+    st.header("🏆 Goals")
+    name = st.text_input("Goal Name")
+    target = st.number_input("Target Amount", min_value=1)
+    if st.button("Create"):
+        df_g = pd.read_csv(DB["goals"])
+        new_g = pd.DataFrame([[st.session_state.username, name, target, 0]], columns=df_g.columns)
+        pd.concat([df_g, new_g], ignore_index=True).to_csv(DB["goals"], index=False)
+        st.rerun()
 
 # --------------------------------------------------
-# SETTINGS PAGE
+# SETTINGS
 # --------------------------------------------------
 elif page == "Settings":
-    st.header("⚙️ Personalization")
-    st.write(f"Logged in as: **{st.session_state.username}**")
-    
-    mode_label = "Dark Mode 🌙" if st.session_state.theme == "light" else "Light Mode ☀️"
-    if st.button(mode_label):
+    st.header("⚙️ Settings")
+    if st.button("Toggle Dark/Light Mode"):
         st.session_state.theme = "dark" if st.session_state.theme == "light" else "light"
         st.rerun()
 
-# Floating Action Button visual
 st.markdown('<div class="fab">＋</div>', unsafe_allow_html=True)

@@ -1,122 +1,143 @@
 import streamlit as st
 import pandas as pd
 import os
-import plotly.express as px
+import hashlib
 from datetime import datetime
+import plotly.express as px
 
 # පිටුවේ සැකසුම්
-st.set_page_config(page_title="My Wallet Pro", page_icon="💰", layout="wide")
+st.set_page_config(page_title="Multi-User Wallet Pro", page_icon="🔐", layout="wide")
 
-# ලස්සන පෙනුම සඳහා CSS (Custom Styling)
-st.markdown("""
-    <style>
-    .main {
-        background-color: #f5f7f9;
-    }
-    .stMetric {
-        background-color: #ffffff;
-        padding: 15px;
-        border-radius: 10px;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.05);
-    }
-    </style>
-    """, unsafe_allow_html=True)
+# --- දත්ත ගොනු ---
+USER_DB = "users.csv"
+DATA_DB = "all_data.csv"
 
-FILE_NAME = "data.csv"
+# දත්ත ගොනු පරීක්ෂාව
+def init_dbs():
+    if not os.path.exists(USER_DB):
+        # මුලින්ම Admin කෙනෙක් හදනවා (Username: admin, Password: kalum1997)
+        admin_pw = hashlib.sha256("password123".encode()).hexdigest()
+        df_users = pd.DataFrame([["admin", admin_pw, "Admin", True]], columns=["username", "password", "role", "approved"])
+        df_users.to_csv(USER_DB, index=False)
+    if not os.path.exists(DATA_DB):
+        pd.DataFrame(columns=["username", "දිනය", "වර්ගය", "විස්තරය", "මුදල"]).to_csv(DATA_DB, index=False)
 
-# දත්ත කියවීම
-if os.path.exists(FILE_NAME):
-    df = pd.read_csv(FILE_NAME)
-    df['දිනය'] = pd.to_datetime(df['දිනය']).dt.date
+init_dbs()
+
+# --- උපකාරක Function ---
+def make_hashes(password):
+    return hashlib.sha256(str.encode(password)).hexdigest()
+
+def check_hashes(password, hashed_text):
+    if make_hashes(password) == hashed_text:
+        return True
+    return False
+
+# --- පද්ධතියට ඇතුළුවීම (Session State) ---
+if 'logged_in' not in st.session_state:
+    st.session_state['logged_in'] = False
+    st.session_state['username'] = ""
+    st.session_state['role'] = ""
+
+# --- LOGIN / REGISTER PAGE ---
+if not st.session_state['logged_in']:
+    tab1, tab2 = st.tabs(["🔑 Login", "📝 Register"])
+    
+    with tab1:
+        st.subheader("ඇතුළු වන්න")
+        user = st.text_input("Username")
+        passwd = st.text_input("Password", type='password')
+        if st.button("Login"):
+            df_u = pd.read_csv(USER_DB)
+            user_row = df_u[df_u['username'] == user]
+            
+            if not user_row.empty:
+                if check_hashes(passwd, user_row.iloc[0]['password']):
+                    if user_row.iloc[0]['approved']:
+                        st.session_state['logged_in'] = True
+                        st.session_state['username'] = user
+                        st.session_state['role'] = user_row.iloc[0]['role']
+                        st.success(f"සාදරයෙන් පිළිගන්නවා {user}!")
+                        st.rerun()
+                    else:
+                        st.error("ඔබට තවම Admin විසින් අනුමැතිය (Approval) ලබා දී නැත.")
+                else:
+                    st.error("වැරදි Password එකක්.")
+            else:
+                st.error("මවැනි පරිශීලකයෙකු නැත.")
+
+    with tab2:
+        st.subheader("ගිණුමක් සාදන්න")
+        new_user = st.text_input("New Username")
+        new_passwd = st.text_input("New Password", type='password')
+        if st.button("Register"):
+            df_u = pd.read_csv(USER_DB)
+            if new_user in df_u['username'].values:
+                st.warning("මෙම නම දැනටමත් පවතී.")
+            else:
+                new_row = pd.DataFrame([[new_user, make_hashes(new_passwd), "User", False]], columns=df_u.columns)
+                pd.concat([df_u, new_row], ignore_index=True).to_csv(USER_DB, index=False)
+                st.info("පදිංචි කිරීම සාර්ථකයි! Admin අනුමත කරන තෙක් රැඳී සිටින්න.")
+
+# --- LOGGED IN CONTENT ---
 else:
-    df = pd.DataFrame(columns=["දිනය", "වර්ගය", "විස්තරය", "මුදල"])
+    st.sidebar.title(f"👋 {st.session_state['username']}")
+    if st.sidebar.button("Logout"):
+        st.session_state['logged_in'] = False
+        st.rerun()
 
-# --- SIDEBAR (දත්ත ඇතුළත් කිරීම) ---
-with st.sidebar:
-    st.image("https://cdn-icons-png.flaticon.com/512/2489/2489756.png", width=100)
-    st.title("My Wallet Pro")
-    st.markdown("---")
+    # --- ADMIN VIEW ---
+    if st.session_state['role'] == "Admin":
+        menu = st.sidebar.selectbox("පාලක පුවරුව", ["User Management", "My Expenses"])
+        
+        if menu == "User Management":
+            st.title("👥 පරිශීලකයින් පාලනය")
+            df_u = pd.read_csv(USER_DB)
+            st.write("දැනට ඉන්න පරිශීලකයින්:")
+            
+            # Approve කරන්න ඕන අය පෙන්වීම
+            for index, row in df_u.iterrows():
+                if row['username'] != 'admin':
+                    col1, col2, col3 = st.columns([2, 1, 1])
+                    col1.write(f"**{row['username']}** (Status: {'Approved' if row['approved'] else 'Pending'})")
+                    if not row['approved']:
+                        if col2.button("Approve", key=f"app_{row['username']}"):
+                            df_u.at[index, 'approved'] = True
+                            df_u.to_csv(USER_DB, index=False)
+                            st.rerun()
+                    if col3.button("Delete", key=f"del_{row['username']}"):
+                        df_u = df_u.drop(index)
+                        df_u.to_csv(USER_DB, index=False)
+                        st.rerun()
+            st.stop() # Admin ට මේ පිටුවේදී වියදම් පේන්නේ නැත
+
+    # --- USER VIEW (OR ADMIN EXPENSES) ---
+    st.title(f"💰 {st.session_state['username']} ගේ පසුම්බිය")
     
-    with st.form("entry_form", clear_on_submit=True):
-        date = st.date_input("📅 දිනය", datetime.now())
-        category = st.selectbox("📂 වර්ගය", [
-            "🍱 කෑම බීම", 
-            "⛽ පෙට්‍රල්/බයික්", 
-            "💵 ආදායම (Income)", 
-            "🔌 බිල්පත්", 
-            "🛍️ ෂොපින්", 
-            "🏥 සෞඛ්‍ය", 
-            "⚙️ වෙනත්"
-        ])
-        desc = st.text_input("📝 විස්තරය (උදා: දිවා ආහාරය)")
-        amount = st.number_input("💰 මුදල (රු.)", min_value=0, step=100)
-        submit = st.form_submit_button("ඇතුළත් කරන්න ✨")
+    # දත්ත කියවීම (තමන්ගේ දත්ත පමණක්)
+    all_df = pd.read_csv(DATA_DB)
+    df = all_df[all_df['username'] == st.session_state['username']]
 
-    if submit:
-        if amount > 0:
-            new_row = pd.DataFrame([[date, category, desc, amount]], columns=df.columns)
-            df = pd.concat([df, new_row], ignore_index=True)
-            df.to_csv(FILE_NAME, index=False)
-            st.success("සාර්ථකව එකතු වුණා!")
-            st.rerun()
-        else:
-            st.warning("කරුණාකර මුදලක් ඇතුළත් කරන්න.")
+    with st.sidebar:
+        st.header("නව ගනුදෙනුව")
+        with st.form("my_form", clear_on_submit=True):
+            date = st.date_input("දිනය", datetime.now())
+            category = st.selectbox("වර්ගය", ["🍱 කෑම බීම", "⛽ පෙට්‍රල්", "💵 ආදායම", "🔌 බිල්පත්", "⚙️ වෙනත්"])
+            desc = st.text_input("විස්තරය")
+            amount = st.number_input("මුදල", min_value=0)
+            if st.form_submit_button("එකතු කරන්න"):
+                new_data = pd.DataFrame([[st.session_state['username'], str(date), category, desc, amount]], columns=all_df.columns)
+                pd.concat([all_df, new_data], ignore_index=True).to_csv(DATA_DB, index=False)
+                st.success("සේව් වුණා!")
+                st.rerun()
 
-# --- MAIN DASHBOARD ---
-st.title("📊 මගේ මුදල් පාලකය")
-
-if not df.empty:
-    # ගණනය කිරීම්
-    df['මුදල'] = pd.to_numeric(df['මුදල'])
-    income = df[df["වර්ගය"] == "💵 ආදායම (Income)"]["මුදල"].sum()
-    expense = df[df["වර්ගය"] != "💵 ආදායම (Income)"]["මුදල"].sum()
-    balance = income - expense
-
-    # Summary Metrics
-    col1, col2, col3 = st.columns(3)
-    col1.metric("මුළු ආදායම", f"රු. {income:,.2f}", delta_color="normal")
-    col2.metric("මුළු වියදම", f"රු. {expense:,.2f}", delta="-"+str(expense), delta_color="inverse")
-    col3.metric("අතේ ඇති ඉතිරිය", f"රු. {balance:,.2f}", delta=str(balance))
-
-    st.markdown("---")
-
-    # Charts Section
-    c1, c2 = st.columns([1, 1])
-    
-    with c1:
-        st.subheader("📈 වියදම් බෙදී ඇති ආකාරය")
-        exp_df = df[df["වර්ගය"] != "💵 ආදායම (Income)"]
-        if not exp_df.empty:
-            fig = px.pie(exp_df, values='මුදල', names='වර්ගය', hole=0.4,
-                         color_discrete_sequence=px.colors.sequential.RdBu)
-            st.plotly_chart(fig, use_container_width=True)
-    
-    with c2:
-        st.subheader("📅 මෑතකාලීන ගනුදෙනු")
-        st.dataframe(df.sort_values(by="දිනය", ascending=False).head(10), use_container_width=True)
-
-    # Search & Filter
-    st.markdown("---")
-    st.subheader("🔍 සියලුම දත්ත සෙවීම")
-    search_term = st.text_input("විස්තරය අනුව සොයන්න...")
-    if search_term:
-        display_df = df[df['විස්තරය'].str.contains(search_term, case=False, na=False)]
+    # Dashboard display (මෙහි පෙර පෙනුම එලෙසම තැබිය හැක)
+    if not df.empty:
+        income = df[df["වර්ගය"] == "💵 ආදායම"]["මුදල"].sum()
+        expense = df[df["වර්ගය"] != "💵 ආදායම"]["මුදල"].sum()
+        c1, c2 = st.columns(2)
+        c1.metric("ආදායම", f"රු. {income}")
+        c2.metric("වියදම", f"රු. {expense}")
+        st.dataframe(df, use_container_width=True)
     else:
-        display_df = df
-
-    st.table(display_df)
-
-    # Report Download
-    csv = df.to_csv(index=False).encode('utf-8')
-    st.download_button(
-        label="📥 සම්පූර්ණ Report එක ලබාගන්න (Excel/CSV)",
-        data=csv,
-        file_name=f'Wallet_Report_{datetime.now().strftime("%Y-%m")}.csv',
-        mime='text/csv',
-    )
-
-else:
-    st.info("👋 සාදරයෙන් පිළිගන්නවා! ඔබගේ පළමු ගනුදෙනුව වම්පස ඇති පැනලය (Sidebar) මගින් ඇතුළත් කරන්න.")
-
-# Footer
-st.markdown("<br><hr><center>Made with ❤️ for Better Budgeting</center>", unsafe_allow_html=True)
+        st.info("ඔබට තවම දත්ත නැත. අලුතින් ඇතුළත් කරන්න.")

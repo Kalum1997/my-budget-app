@@ -1,15 +1,18 @@
 import streamlit as st
-from streamlit_gsheets import GSheetsConnection
 import pandas as pd
+import os
 
-st.set_page_config(page_title="වියදම් පාලකය", layout="centered")
+st.set_page_config(page_title="Budget Tracker", layout="centered")
 st.title("💰 මගේ මාසික වියදම් පාලකය")
 
-# Google Sheets සම්බන්ධතාවය
-conn = st.connection("gsheets", type=GSheetsConnection)
+# දත්ත ගොනුව පරීක්ෂා කිරීම
+FILE_NAME = "data.csv"
 
-# Sheet එකේ ඇති දත්ත කියවීම (Cache එක නැති කිරීමට ttl=0 දමන්න)
-df = conn.read(ttl=0)
+# දත්ත කියවීම
+if os.path.exists(FILE_NAME):
+    df = pd.read_csv(FILE_NAME)
+else:
+    df = pd.DataFrame(columns=["දිනය", "වර්ගය", "විස්තරය", "මුදල"])
 
 # Sidebar එකෙන් දත්ත ඇතුළත් කිරීම
 with st.sidebar:
@@ -20,38 +23,31 @@ with st.sidebar:
     amount = st.number_input("මුදල", min_value=0)
     
     if st.button("ඇතුළත් කරන්න"):
-        # අලුත් පේළිය සෑදීම
-        new_row = pd.DataFrame([{
-            "දිනය": str(date),
-            "වර්ගය": category,
-            "විස්තරය": desc,
-            "මුදල": amount
-        }])
-        
-        # දැනට තියෙන දත්ත වලට අලුත් පේළිය එකතු කිරීම
-        updated_df = pd.concat([df, new_row], ignore_index=True)
-        
-        # Google Sheet එක Update කිරීම
-        conn.update(worksheet="Sheet1", data=updated_df)
-        
-        st.success("දත්ත සාර්ථකව Sheet එකට එකතු වුණා!")
+        new_row = pd.DataFrame([[str(date), category, desc, amount]], columns=df.columns)
+        df = pd.concat([df, new_row], ignore_index=True)
+        # දත්ත සේව් කිරීම
+        df.to_csv(FILE_NAME, index=False)
+        st.success("දත්ත සාර්ථකව සේව් වුණා!")
         st.rerun()
 
-# Dashboard එක
+# Dashboard
 if not df.empty:
-    # මුදල් ගණනය කිරීම (මුදල column එක number එකක් බව තහවුරු කරගන්න)
     df['මුදල'] = pd.to_numeric(df['මුදල'])
     income = df[df["වර්ගය"] == "ආදායම (Income)"]["මුදල"].sum()
     expense = df[df["වර්ගය"] != "ආදායම (Income)"]["මුදල"].sum()
     
     col1, col2 = st.columns(2)
-    col1.metric("මුළු ආදායම", f"රු. {income}")
-    col2.metric("මුළු වියදම", f"රු. {expense}")
-    st.metric("ඉතිරි මුදල (Profit)", f"රු. {income - expense}")
+    col1.metric("ආදායම", f"රු. {income}")
+    col2.metric("වියදම", f"රු. {expense}")
+    st.metric("ඉතිරිය", f"රු. {income - expense}")
     
     st.divider()
-    st.subheader("📝 ගනුදෙනු ලැයිස්තුව")
     st.dataframe(df, use_container_width=True)
+    
+    # දත්ත සියල්ල මකා දැමීමට බොත්තමක් (අවශ්‍ය නම් පමණක්)
+    if st.button("සියලු දත්ත මකන්න"):
+        if os.path.exists(FILE_NAME):
+            os.remove(FILE_NAME)
+            st.rerun()
 else:
-    st.info("තවම දත්ත කිසිවක් නැත. Sidebar එකෙන් ඇතුළත් කරන්න.")
-
+    st.info("තවම දත්ත නැත. Sidebar එකෙන් ඇතුළත් කරන්න.")

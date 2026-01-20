@@ -3,53 +3,54 @@ import pandas as pd
 import os
 import hashlib
 import plotly.express as px
-import plotly.graph_objects as go
+import requests
 from datetime import datetime
+from streamlit_lottie import st_lottie
+from streamlit_option_menu import option_menu
 
 # --- APP CONFIG ---
 st.set_page_config(page_title="Nexus Pro - Wealth & Productivity", page_icon="💎", layout="wide")
 
-# --- CUSTOM CSS FOR PREMIUM UI ---
-st.markdown("""
+# --- INITIALIZE SESSION STATE (To fix KeyError) ---
+if 'logged_in' not in st.session_state:
+    st.session_state.update({'logged_in': False, 'username': "", 'role': "User", 'theme': "light"})
+
+# --- LOTTIE LOADER ---
+def load_lottieurl(url: str):
+    try:
+        r = requests.get(url, timeout=5)
+        return r.json() if r.status_code == 200 else None
+    except: return None
+
+lottie_main = load_lottieurl("https://lottie.host/802b1660-3948-4362-a548-56549a930129/Z7vP4U9W6y.json")
+
+# --- THEME & CSS ---
+t = {"bg": "#f8f9fa", "card": "white", "text": "#333"} if st.session_state.theme == "light" else {"bg": "#0e1117", "card": "#1e2130", "text": "#fafafa"}
+
+st.markdown(f"""
     <style>
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap');
-    html, body, [class*="css"] { font-family: 'Inter', sans-serif; }
-    .main { background: #f8f9fa; }
-    .metric-card { 
-        background: white; 
-        padding: 25px; 
-        border-radius: 20px; 
-        box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1); 
-        border-bottom: 5px solid #6366f1;
-        transition: transform 0.3s;
-    }
-    .metric-card:hover { transform: translateY(-5px); }
-    .status-pill { padding: 5px 12px; border-radius: 20px; font-size: 12px; font-weight: bold; }
-    div.stButton > button { 
-        background: #6366f1; 
-        color: white; 
-        border-radius: 12px; 
-        width: 100%; 
-        font-weight: 600; 
-        border: none; 
-        height: 3.5rem; 
-    }
+    .stApp {{ background-color: {t['bg']}; color: {t['text']}; }}
+    .metric-card {{ 
+        background: {t['card']}; padding: 25px; border-radius: 20px; 
+        box-shadow: 0 10px 15px rgba(0,0,0,0.1); border-bottom: 5px solid #6366f1;
+        color: {t['text']}; margin-bottom: 20px;
+    }}
+    div.stButton > button {{ border-radius: 12px; font-weight: 600; height: 3rem; }}
     </style>
-    """, unsafe_allow_html=True)
+""", unsafe_allow_html=True)
 
 # --- DB INITIALIZATION ---
 FILES = {
-    "users": "users_pro.csv",
-    "trans": "trans_pro.csv",
-    "tasks": "tasks_pro.csv",
-    "savings": "savings_pro.csv",
-    "config": "config_pro.csv",
-    "custom_cats": "cats_pro.csv"
+    "users": "users_v6.csv", "trans": "trans_v6.csv", 
+    "tasks": "tasks_v6.csv", "savings": "savings_v6.csv", 
+    "config": "config_v6.csv", "cats": "cats_v6.csv"
 }
+
+def make_hash(pw): return hashlib.sha256(pw.encode()).hexdigest()
 
 def init_dbs():
     if not os.path.exists(FILES["users"]):
-        admin_pw = hashlib.sha256("password123".encode()).hexdigest()
+        admin_pw = make_hash("123") # Default Admin Password
         pd.DataFrame([["admin", admin_pw, "Admin", True]], columns=["username", "password", "role", "approved"]).to_csv(FILES["users"], index=False)
     
     defaults = {
@@ -57,237 +58,174 @@ def init_dbs():
         "tasks": ["username", "task", "status", "priority", "date"],
         "savings": ["username", "goal", "target", "current"],
         "config": ["username", "monthly_limit"],
-        "custom_cats": ["username", "category_name"]
+        "cats": ["username", "category_name"]
     }
     for key, cols in defaults.items():
         if not os.path.exists(FILES[key]): pd.DataFrame(columns=cols).to_csv(FILES[key], index=False)
 
 init_dbs()
 
-# --- AUTH SYSTEM ---
-if 'logged_in' not in st.session_state:
-    st.session_state.update({'logged_in': False, 'username': "", 'role': ""})
-
-def make_hash(pw): return hashlib.sha256(pw.encode()).hexdigest()
-
-# --- LOGIN / REGISTER ---
-if not st.session_state['logged_in']:
-    st.title("💎 Nexus Pro Management")
-    st.info("ඔබේ මූල්‍ය සහ එදිනෙදා වැඩ පාලනය කරන එකම තැන.")
-    t1, t2 = st.tabs(["🔑 ඇතුළු වන්න", "📝 ලියාපදිංචි වන්න"])
-    
-    with t1:
-        u = st.text_input("පරිශීලක නම (Username)")
-        p = st.text_input("මුරපදය (Password)", type="password")
-        if st.button("Log In"):
-            udf = pd.read_csv(FILES["users"])
-            res = udf[(udf['username']==u) & (udf['password']==make_hash(p))]
-            if not res.empty:
-                if res.iloc[0]['approved']:
-                    st.session_state.update({'logged_in': True, 'username': u, 'role': res.iloc[0]['role']})
-                    st.rerun()
-                else: st.error("Admin තවම ඔබව Approve කර නැත.")
-            else: st.error("නම හෝ මුරපදය වැරදියි.")
-    with t2:
-        nu = st.text_input("අලුත් නමක්")
-        np = st.text_input("අලුත් මුරපදයක්", type="password")
-        if st.button("Register"):
-            udf = pd.read_csv(FILES["users"])
-            if nu in udf['username'].values: st.warning("මෙම නම දැනටමත් පවතී.")
-            else:
-                new_u = pd.DataFrame([[nu, make_hash(np), "User", False]], columns=udf.columns)
-                pd.concat([udf, new_u]).to_csv(FILES["users"], index=False)
-                st.success("ලියාපදිංචිය සාර්ථකයි! Admin අනුමත කරන තෙක් රැඳී සිටින්න.")
+# --- AUTHENTICATION ---
+if not st.session_state.logged_in:
+    col1, col2 = st.columns([1, 1])
+    with col1:
+        if lottie_main: st_lottie(lottie_main, height=400)
+        else: st.title("💎 Nexus Pro")
+    with col2:
+        st.subheader("Nexus Pro Management System")
+        tab1, tab2 = st.tabs(["🔑 Login", "📝 Register"])
+        with tab1:
+            u = st.text_input("Username")
+            p = st.text_input("Password", type="password")
+            if st.button("Log In"):
+                udf = pd.read_csv(FILES["users"])
+                res = udf[(udf['username']==u) & (udf['password']==make_hash(p))]
+                if not res.empty:
+                    if res.iloc[0]['approved']:
+                        st.session_state.update({'logged_in': True, 'username': u, 'role': res.iloc[0]['role']})
+                        st.rerun()
+                    else: st.error("Admin අනුමැතිය අවශ්‍යයි.")
+                else: st.error("වැරදි Username හෝ Password.")
+        with tab2:
+            nu = st.text_input("New Username")
+            np = st.text_input("New Password", type="password")
+            if st.button("Register"):
+                udf = pd.read_csv(FILES["users"])
+                if nu in udf['username'].values: st.warning("නම පවතී.")
+                else:
+                    new_u = pd.DataFrame([[nu, make_hash(np), "User", False]], columns=udf.columns)
+                    pd.concat([udf, new_u]).to_csv(FILES["users"], index=False)
+                    st.success("සාර්ථකයි! Admin අනුමත කරන තෙක් රැඳී සිටින්න.")
     st.stop()
 
-# --- MAIN NAVIGATION ---
-st.sidebar.markdown(f"### 👋 Welcome, {st.session_state['username']}")
-nav = st.sidebar.radio("Navigation", ["🏠 Dashboard", "💰 Wallet", "✅ Tasks & Goals", "⚙️ Settings", "👨‍💼 Admin Panel" if st.session_state['role']=="Admin" else "🏠 Dashboard"])
+# --- SIDEBAR NAVIGATION ---
+with st.sidebar:
+    st.markdown(f"### 👋 Welcome, {st.session_state.username}")
+    
+    # Navigation options based on role
+    menu_items = ["🏠 Dashboard", "💰 Wallet", "✅ Tasks & Goals", "⚙️ Settings"]
+    if st.session_state.role == "Admin":
+        menu_items.append("👨‍💼 Admin Panel")
+    
+    selected = option_menu("Nexus Menu", menu_items, 
+        icons=['house', 'wallet2', 'list-check', 'gear', 'person-badge'], 
+        menu_icon="cast", default_index=0)
+    
+    if st.button("🌓 Toggle Theme"):
+        st.session_state.theme = "dark" if st.session_state.theme == "light" else "light"
+        st.rerun()
+    
+    if st.button("Logout"):
+        st.session_state.logged_in = False
+        st.rerun()
 
-if st.sidebar.button("Logout"):
-    st.session_state['logged_in'] = False
-    st.rerun()
+# --- DATA LOAD ---
+tdf = pd.read_csv(FILES["trans"])
+user_tdf = tdf[tdf['username'] == st.session_state.username]
 
-# --- 1. HOME DASHBOARD ---
-if nav == "🏠 Dashboard":
-    st.title(f"🚀 {st.session_state['username']}'s Pulse")
-    tdf = pd.read_csv(FILES["trans"])
-    user_tdf = tdf[tdf['username'] == st.session_state['username']]
+# --- 1. DASHBOARD ---
+if selected == "🏠 Dashboard":
+    st.title("🚀 Pulse Dashboard")
     inc = user_tdf[user_tdf['type']=="Income"]['amt'].sum()
     exp = user_tdf[user_tdf['type']=="Expense"]['amt'].sum()
     
     tkdf = pd.read_csv(FILES["tasks"])
-    user_tkdf = tkdf[tkdf['username'] == st.session_state['username']]
-    comp_tasks = len(user_tkdf[user_tkdf['status']=="Done"])
-    total_tasks = len(user_tkdf)
+    user_tk = tkdf[tkdf['username'] == st.session_state.username]
+    prog = (len(user_tk[user_tk['status']=="Done"])/len(user_tk)*100) if not user_tk.empty else 0
 
     c1, c2, c3 = st.columns(3)
-    with c1:
-        st.markdown(f"<div class='metric-card'><h4>💵 අතේ ඇති මුදල</h4><h2>රු. {inc-exp:,.0f}</h2></div>", unsafe_allow_html=True)
-    with c2:
-        score = "Perfect" if inc > exp*2 else "Average"
-        st.markdown(f"<div class='metric-card'><h4>📊 මූල්‍ය මට්ටම</h4><h2>{score}</h2></div>", unsafe_allow_html=True)
-    with c3:
-        prog = (comp_tasks/total_tasks*100) if total_tasks > 0 else 0
-        st.markdown(f"<div class='metric-card'><h4>✅ වැඩ අවසන් කිරීම</h4><h2>{prog:.0f}%</h2></div>", unsafe_allow_html=True)
+    c1.markdown(f"<div class='metric-card'><h4>💵 අතේ ඇති මුදල</h4><h2>රු. {inc-exp:,.0f}</h2></div>", unsafe_allow_html=True)
+    c2.markdown(f"<div class='metric-card'><h4>📊 මූල්‍ය මට්ටම</h4><h2>{'Excellent' if inc>exp*2 else 'Stable'}</h2></div>", unsafe_allow_html=True)
+    c3.markdown(f"<div class='metric-card'><h4>✅ Productivity</h4><h2>{prog:.0f}%</h2></div>", unsafe_allow_html=True)
 
-    st.divider()
-    col_a, col_b = st.columns([2, 1])
-    with col_a:
-        st.subheader("🗓️ මෑතකාලීන ගනුදෙනු")
-        st.dataframe(user_tdf.tail(10), use_container_width=True)
-    with col_b:
-        st.subheader("💡 Motivation")
-        st.info("අද දවස ඊයේට වඩා සාර්ථක කරගන්න උපරිමයෙන් උත්සාහ කරන්න! 💪")
+    st.subheader("🗓️ මෑතකාලීන ගනුදෙනු")
+    st.dataframe(user_tdf.tail(5), use_container_width=True)
 
-# --- 2. WALLET (FINANCE) ---
-elif nav == "💰 Wallet":
-    st.title("💸 Wallet Manager")
-    tdf = pd.read_csv(FILES["trans"])
-    
-    # Get Categories
-    default_cats = ["Food", "Rent", "Salary", "Fuel", "Bills", "Health", "Other"]
-    custom_cats_df = pd.read_csv(FILES["custom_cats"])
-    user_custom_cats = custom_cats_df[custom_cats_df['username'] == st.session_state['username']]['category_name'].tolist()
-    all_cats = default_cats + user_custom_cats
-
-    with st.expander("➕ නව ගනුදෙනුවක් ඇතුළත් කරන්න"):
+# --- 2. WALLET ---
+elif selected == "💰 Wallet":
+    st.title("💸 Wallet Management")
+    with st.expander("➕ නව ගනුදෙනුවක්"):
         c1, c2, c3 = st.columns(3)
-        t_type = c1.selectbox("වර්ගය", ["Expense", "Income"])
-        t_cat = c2.selectbox("Category", all_cats)
-        t_amt = c3.number_input("Amount (Rs.)", min_value=0)
-        t_desc = st.text_input("විස්තරය")
-        if st.button("Save to Wallet"):
-            new_t = pd.DataFrame([[st.session_state['username'], str(datetime.now().date()), t_cat, t_desc, t_amt, t_type]], columns=tdf.columns)
+        ty = c1.selectbox("Type", ["Expense", "Income"])
+        cat = c2.selectbox("Category", ["Food", "Rent", "Salary", "Fuel", "Bills", "Health", "Other"])
+        amt = c3.number_input("Amount", min_value=0)
+        ds = st.text_input("Description")
+        if st.button("Save"):
+            new_t = pd.DataFrame([[st.session_state.username, str(datetime.now().date()), cat, ds, amt, ty]], columns=tdf.columns)
             pd.concat([tdf, new_t]).to_csv(FILES["trans"], index=False)
-            st.success("සේව් වුණා!")
+            st.success("Saved!")
             st.rerun()
-
-    user_tdf = tdf[tdf['username'] == st.session_state['username']]
-    st.subheader("📊 වියදම් විස්තර")
-    if not user_tdf[user_tdf['type']=="Expense"].empty:
-        fig = px.bar(user_tdf[user_tdf['type']=="Expense"], x='cat', y='amt', color='cat', title="Category wise Expense")
-        st.plotly_chart(fig, use_container_width=True)
-    else:
-        st.write("තවම වියදම් වාර්තා වී නොමැත.")
-
-# --- 3. TASKS & SAVINGS ---
-elif nav == "✅ Tasks & Goals":
-    st.title("🎯 Tasks & Savings")
-    tab_tasks, tab_save = st.tabs(["📝 Daily Tasks", "🐷 Saving Goals"])
     
-    with tab_tasks:
+    if not user_tdf.empty:
+        fig = px.pie(user_tdf[user_tdf['type']=="Expense"], values='amt', names='cat', hole=0.4, title="වියදම් බෙදී ඇති ආකාරය")
+        st.plotly_chart(fig, use_container_width=True)
+
+# --- 3. TASKS & GOALS ---
+elif selected == "✅ Tasks & Goals":
+    st.title("🎯 Tasks & Savings")
+    t1, t2 = st.tabs(["📝 Tasks", "🐷 Savings"])
+    
+    with t1:
         tkdf = pd.read_csv(FILES["tasks"])
-        user_tk = tkdf[tkdf['username'] == st.session_state['username']]
-        with st.form("task_form"):
-            t_name = st.text_input("කරන්න තියෙන වැඩේ?")
-            t_prio = st.select_slider("වැදගත්කම (Priority)", options=["Low", "Medium", "High"])
-            if st.form_submit_button("Add Task"):
-                new_tk = pd.DataFrame([[st.session_state['username'], t_name, "Pending", t_prio, str(datetime.now().date())]], columns=tkdf.columns)
+        with st.form("tk_form"):
+            name = st.text_input("Task Name")
+            prio = st.select_slider("Priority", ["Low", "Medium", "High"])
+            if st.form_submit_button("Add"):
+                new_tk = pd.DataFrame([[st.session_state.username, name, "Pending", prio, str(datetime.now().date())]], columns=tkdf.columns)
                 pd.concat([tkdf, new_tk]).to_csv(FILES["tasks"], index=False)
                 st.rerun()
-        for i, r in user_tk.iterrows():
+        
+        for i, r in tkdf[tkdf['username'] == st.session_state.username].iterrows():
             col1, col2 = st.columns([0.8, 0.2])
             if r['status'] == "Pending":
-                col1.warning(f"**{r['task']}** (Priority: {r['priority']})")
-                if col2.button("Complete", key=f"tk_{i}"):
+                col1.warning(f"**{r['task']}**")
+                if col2.button("Done", key=f"k_{i}"):
                     tkdf.at[i, 'status'] = "Done"
                     tkdf.to_csv(FILES["tasks"], index=False)
                     st.rerun()
-            else:
-                col1.success(f"~~{r['task']}~~ (Done ✅)")
+            else: col1.success(f"~~{r['task']}~~ ✅")
 
-    with tab_save:
+    with t2:
         sdf = pd.read_csv(FILES["savings"])
-        user_s = sdf[sdf['username'] == st.session_state['username']]
-        with st.expander("🎯 අලුත් ඉලක්කයක් (Saving Goal)"):
-            g_name = st.text_input("Goal Name")
-            g_target = st.number_input("Target Amount", min_value=1)
-            if st.button("Set Goal"):
-                new_g = pd.DataFrame([[st.session_state['username'], g_name, g_target, 0]], columns=sdf.columns)
+        with st.expander("🎯 New Goal"):
+            gn = st.text_input("Goal Name")
+            gt = st.number_input("Target", min_value=1)
+            if st.button("Set"):
+                new_g = pd.DataFrame([[st.session_state.username, gn, gt, 0]], columns=sdf.columns)
                 pd.concat([sdf, new_g]).to_csv(FILES["savings"], index=False)
                 st.rerun()
-        for i, r in user_s.iterrows():
-            st.write(f"**{r['goal']}**")
+        
+        for i, r in sdf[sdf['username'] == st.session_state.username].iterrows():
+            st.write(f"**{r['goal']}** ({r['current']}/{r['target']})")
             st.progress(min(r['current']/r['target'], 1.0))
-            st.write(f"රු. {r['current']} / {r['target']}")
-            up_amt = st.number_input(f"මුදල් එකතු කරන්න ({r['goal']})", min_value=0, key=f"s_{i}")
-            if st.button("Update Goal", key=f"btn_{i}"):
-                sdf.at[i, 'current'] += up_amt
+            amt = st.number_input("Add Amount", min_value=0, key=f"s_{i}")
+            if st.button("Update", key=f"b_{i}"):
+                sdf.at[i, 'current'] += amt
                 sdf.to_csv(FILES["savings"], index=False)
                 st.rerun()
 
 # --- 4. SETTINGS ---
-elif nav == "⚙️ Settings":
-    st.title("⚙️ User Settings")
-    st.subheader("ඔබේ ගිණුමේ සැකසුම් මෙතැනින් පාලනය කරන්න.")
+elif selected == "⚙️ Settings":
+    st.title("⚙️ Settings")
+    st.write(f"Username: {st.session_state.username}")
+    st.write(f"Role: {st.session_state.role}")
     
-    set_tab1, set_tab2, set_tab3 = st.tabs(["👤 Profile & Security", "📊 Budget & Limits", "📂 Wallet Categories"])
-    
-    with set_tab1:
-        st.markdown("### Profile Info")
-        st.write(f"**Username:** {st.session_state['username']}")
-        st.write(f"**Role:** {st.session_state['role']}")
-        
-        st.divider()
-        st.markdown("### Change Password")
-        new_pw = st.text_input("අලුත් මුරපදය", type="password")
-        conf_pw = st.text_input("මුරපදය නැවත ඇතුළත් කරන්න", type="password")
-        if st.button("Update Password"):
-            if new_pw == conf_pw and new_pw != "":
-                udf = pd.read_csv(FILES["users"])
-                udf.loc[udf['username'] == st.session_state['username'], 'password'] = make_hash(new_pw)
-                udf.to_csv(FILES["users"], index=False)
-                st.success("මුරපදය සාර්ථකව වෙනස් කළා!")
-            else:
-                st.error("මුරපද ගැලපෙන්නේ නැත හෝ හිස්ව පවතී.")
-
-    with set_tab2:
-        st.markdown("### Monthly Spending Limit")
-        conf_df = pd.read_csv(FILES["config"])
-        user_conf = conf_df[conf_df['username'] == st.session_state['username']]
-        current_limit = user_conf['monthly_limit'].values[0] if not user_conf.empty else 0
-        
-        new_limit = st.number_input("මාසික වියදම් සීමාව (රු.)", value=int(current_limit))
-        if st.button("Save Limit"):
-            if not user_conf.empty:
-                conf_df.loc[conf_df['username'] == st.session_state['username'], 'monthly_limit'] = new_limit
-            else:
-                new_limit_df = pd.DataFrame([[st.session_state['username'], new_limit]], columns=conf_df.columns)
-                conf_df = pd.concat([conf_df, new_limit_df])
-            conf_df.to_csv(FILES["config"], index=False)
-            st.success("වියදම් සීමාව යාවත්කාලීන කළා!")
-
-    with set_tab3:
-        st.markdown("### Custom Wallet Categories")
-        st.info("Wallet එකේ Expense/Income ඇතුළත් කරන විට භාවිතා කිරීමට ඔබටම අනන්‍ය වර්ග (Categories) මෙතැනින් එකතු කරන්න.")
-        
-        cc_df = pd.read_csv(FILES["custom_cats"])
-        
-        c1, c2 = st.columns([2, 1])
-        with c1:
-            new_cat_name = st.text_input("නව Category නම")
-            if st.button("Add New Category"):
-                if new_cat_name != "":
-                    new_c = pd.DataFrame([[st.session_state['username'], new_cat_name]], columns=cc_df.columns)
-                    pd.concat([cc_df, new_c]).to_csv(FILES["custom_cats"], index=False)
-                    st.rerun()
-        
-        with c2:
-            st.write("**පවතින Custom Categories:**")
-            user_cats = cc_df[cc_df['username'] == st.session_state['username']]
-            for idx, row in user_cats.iterrows():
-                st.text(f"• {row['category_name']}")
+    st.divider()
+    new_p = st.text_input("Change Password", type="password")
+    if st.button("Update Password"):
+        udf = pd.read_csv(FILES["users"])
+        udf.loc[udf['username'] == st.session_state.username, 'password'] = make_hash(new_p)
+        udf.to_csv(FILES["users"], index=False)
+        st.success("මුරපදය යාවත්කාලීන කළා!")
 
 # --- 5. ADMIN PANEL ---
-elif nav == "👨‍💼 Admin Panel":
-    st.title("👨‍💼 Global Administration")
+elif selected == "👨‍💼 Admin Panel":
+    st.title("👨‍💼 Admin Control")
     udf = pd.read_csv(FILES["users"])
     for i, r in udf.iterrows():
         if r['username'] != 'admin':
             c1, c2, c3 = st.columns([2,1,1])
-            status = "Approved ✅" if r['approved'] else "Pending ⏳"
-            c1.write(f"**{r['username']}** | {status}")
+            c1.write(f"**{r['username']}** | {'Approved' if r['approved'] else 'Pending'}")
             if not r['approved'] and c2.button("Approve", key=f"a_{i}"):
                 udf.at[i, 'approved'] = True
                 udf.to_csv(FILES["users"], index=False)
